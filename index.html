@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>흑백 멍청한 도트 사슴 인터랙티브</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5; /* 아주 연한 회색 배경 */
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+
+        #canvas-container {
+            position: relative;
+            text-align: center;
+        }
+
+        canvas {
+            /* 도트 픽셀을 뭉개지지 않게 렌더링 */
+            image-rendering: pixelated; 
+            cursor: pointer;
+            /* 그림자 효과 제거 (흑백 콘셉트 강조) */
+            /* filter: drop-shadow(4px 4px 0px rgba(0,0,0,0.1)); */
+            /* 기본 트랜지션 (갸웃, 넘어짐용) */
+            transition: transform 0.1s ease; 
+        }
+
+        #instruction {
+            position: absolute;
+            bottom: -50px;
+            width: 100%;
+            color: #333;
+            font-size: 18px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div id="canvas-container">
+    <canvas id="deerCanvas"></canvas>
+    <div id="instruction">사슴을 클릭해보세요! (멍충...)</div>
+</div>
+
+<script>
+    const canvas = document.getElementById('deerCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // --- 구성 설정 ---
+    const PIXEL_SIZE = 10; // 도트 한 하나의 크기 (캐릭터 크기 조절)
+    
+    // --- 색상 맵 (데이터 배열의 숫자와 매핑) - 흑백 버전 ---
+    const COLOR_MAP = {
+        0: null,            // 투명 (배경)
+        1: '#ffffff',       // 흰색 (몸통 바탕)
+        2: '#cccccc',       // 연한 회색 (뿔, 발 끝 - 구조 구분용)
+        3: '#000000',       // 검은색 (눈, '王'자, 목도리)
+        4: '#cccccc',       // 연한 회색 (코 주변 주둥이 - 구조 구분용)
+        5: '#000000'        // 검은색 (코)
+    };
+
+    // --- 캐릭터 데이터 (더 단순하고 멍청한 버전 - 20x28) ---
+    // 0:투명, 1:흰색, 2:연회색, 3:검정, 4:연회색(주둥이), 5:검정(코)
+    const deerData = [
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], // 여백
+        [0,0,0,2,2,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0], // 뿔 위 (회색)
+        [0,0,0,2,2,0,0,0,0,0,0,0,0,0,0,2,2,0,0,0],
+        [0,0,2,2,2,2,0,0,0,0,0,0,0,0,2,2,2,2,0,0],
+        [0,0,0,2,2,0,0,1,1,1,1,1,1,0,0,2,2,0,0,0], // 뿔 아래 & 머리 시작
+        [0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0],
+        [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0], // 귀 위치
+        [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+        [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+        [0,0,0,1,1,3,3,1,1,1,1,1,1,3,3,1,1,0,0,0], // 멍청한 눈 (검정)
+        [0,0,0,1,1,3,3,1,1,1,1,1,1,3,3,1,1,0,0,0],
+        [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+        [0,0,0,1,1,1,1,4,4,4,4,4,4,1,1,1,1,0,0,0], // 주둥이 주변 회색 시작
+        [0,0,0,1,1,1,1,4,4,5,5,4,4,1,1,1,1,0,0,0], // 코 (검정)
+        [0,0,0,0,1,1,1,1,4,4,4,4,1,1,1,1,0,0,0,0],
+        [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0], // 턱
+        [0,0,0,0,3,3,3,3,3,3,3,3,3,3,3,3,0,0,0,0], // 단순화된 목도리 (검정)
+        [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0], // 몸통 시작
+        [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],
+        [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
+        [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+        [0,1,1,1,1,1,3,3,3,3,3,3,3,3,1,1,1,1,1,0], // 배의 큰 '王'자 위 (검정)
+        [0,1,1,1,1,1,1,1,1,3,3,1,1,1,1,1,1,1,1,0],
+        [0,0,1,1,1,1,1,3,3,3,3,3,3,3,1,1,1,1,0,0], // '王'자 중간
+        [0,0,1,1,1,1,1,1,1,3,3,1,1,1,1,1,1,0,0,0],
+        [0,0,0,1,1,1,3,3,3,3,3,3,3,3,1,1,0,0,0,0], // '王'자 아래
+        [0,0,0,2,2,2,2,1,1,1,1,1,1,2,2,2,2,0,0,0], // 발 끝 회색
+        [0,0,0,2,2,2,2,0,0,0,0,0,0,2,2,2,2,0,0,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]  // 여백
+    ];
+
+    // 데이터 크기 기반 Canvas 크기 설정
+    const ROWS = deerData.length;
+    const COLS = deerData[0].length;
+    canvas.width = COLS * PIXEL_SIZE;
+    canvas.height = ROWS * PIXEL_SIZE + (15 * PIXEL_SIZE); // 점프 공간 확보
+
+    // --- 상태 변수 ---
+    const baseCharY = 10 * PIXEL_SIZE; // 기본 Y 위치 (바닥에서 띄움)
+    let charY = baseCharY;
+    let charX = 0;
+    let isAnimating = false;
+
+    // --- 렌더링 함수 ---
+    function drawCharacter(data, x, y) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height); // 화면 지우기
+        
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                const colorIndex = data[r][c];
+                const color = COLOR_MAP[colorIndex];
+                if (color) {
+                    ctx.fillStyle = color;
+                    // 픽셀 하나하나 그리기
+                    ctx.fillRect(x + (c * PIXEL_SIZE), y + (r * PIXEL_SIZE), PIXEL_SIZE, PIXEL_SIZE);
+                }
+            }
+        }
+    }
+
+    // 초기 그리기 (정지 상태)
+    drawCharacter(deerData, charX, charY);
+
+    // --- 애니메이션 로직 ---
+
+    // 1. 점프 (Canvas 직접 좌표 이동)
+    function animateJump() {
+        let gravity = 1.0;
+        let speed = -22; // 초기 점프 속도
+        let currentY = charY;
+
+        function jumpLoop() {
+            speed += gravity;
+            currentY += speed;
+
+            if (currentY >= charY) { // 바닥 도착
+                currentY = charY;
+                drawCharacter(deerData, charX, currentY);
+                isAnimating = false;
+                return; // 애니메이션 종료
+            }
+
+            drawCharacter(deerData, charX, currentY);
+            requestAnimationFrame(jumpLoop);
+        }
+        jumpLoop();
+    }
+
+    // 2. 넘어짐 (CSS transform rotate 활용)
+    function animateFall() {
+        // 넘어지는 모션 스타일에 맞게 트랜지션 변경
+        canvas.style.transition = "transform 0.5s ease-out";
+        
+        // 90도 회전 (데굴)
+        canvas.style.transform = "rotate(90deg)";
+
+        // 1.2초 후 오뚝이처럼 일어남
+        setTimeout(() => {
+            canvas.style.transition = "transform 0.4s ease-in";
+            canvas.style.transform = "rotate(0deg)";
+            
+            // 일어나기 완료 후 상태 초기화
+            setTimeout(() => {
+                canvas.style.transition = "transform 0.1s ease"; // 기본 트랜지션 복구
+                isAnimating = false;
+            }, 400);
+        }, 1200);
+    }
+
+    // 3. 갸웃 (CSS transform rotate 활용)
+    function animateTilt() {
+        // 빠른 갸웃거림을 위해 트랜지션 변경
+        canvas.style.transition = "transform 0.15s ease-in-out";
+        
+        // 왼쪽으로 갸웃
+        canvas.style.transform = "rotate(-15deg)";
+
+        // 0.15초 후 오른쪽으로 갸웃
+        setTimeout(() => {
+            canvas.style.transform = "rotate(15deg)";
+            
+            // 0.15초 후 정면으로 복구
+            setTimeout(() => {
+                canvas.style.transform = "rotate(0deg)";
+                
+                // 복구 완료 후 상태 초기화
+                setTimeout(() => {
+                    canvas.style.transition = "transform 0.1s ease";
+                    isAnimating = false;
+                }, 150);
+            }, 150);
+        }, 150);
+    }
+
+
+    // --- 클릭 이벤트 처리 ---
+    canvas.addEventListener('click', function() {
+        if (isAnimating) return; // 애니메이션 중 클릭 방지
+        isAnimating = true;
+
+        // 0~2 사이의 난수 생성
+        const rand = Math.floor(Math.random() * 3);
+
+        if (rand === 0) {
+            animateJump();
+        } else if (rand === 1) {
+            animateFall();
+        } else {
+            animateTilt();
+        }
+    });
+
+</script>
+
+</body>
+</html>
